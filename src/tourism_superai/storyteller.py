@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Storytelling backend for the Agentic AI Roadtrip service.
+
+This module manages place-triggered story generation, audio synthesis via
+Cartesia, and retrigger/ cooldown logic for location-based narration.
+"""
+
 import argparse
 import json
 import math
@@ -23,7 +29,7 @@ try:
         load_env_file,
     )
 except ImportError:
-    from backend.trip_design import (
+    from .trip_design import (
         AgentConfig,
         GroqChatClient,
         KnowledgeRetriever,
@@ -34,16 +40,35 @@ except ImportError:
     )
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 CARTESIA_TTS_URL = "https://api.cartesia.ai/tts/bytes"
 
 
 def _slugify(value: str) -> str:
+    """Convert a string to a slug suitable for filenames.
+
+    Args:
+        value (str): The string to slugify.
+
+    Returns:
+        str: The slugified string.
+    """
     ascii_only = re.sub(r"[^a-zA-Z0-9]+", "_", value.lower()).strip("_")
     return ascii_only or "location"
 
 
 def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two points in meters.
+
+    Args:
+        lat1 (float): Latitude of the first point.
+        lon1 (float): Longitude of the first point.
+        lat2 (float): Latitude of the second point.
+        lon2 (float): Longitude of the second point.
+
+    Returns:
+        float: Distance in meters.
+    """
     radius_m = 6_371_000
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -58,6 +83,7 @@ def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
 
 @dataclass(slots=True)
 class StoryResult:
+    """Structured result object for a generated location story."""
     trigger_keyword: str
     place_name: str
     latitude: float
@@ -72,9 +98,25 @@ class StoryResult:
     audio_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the story to a dictionary.
+
+        Args:
+            None
+
+        Returns:
+            dict[str, Any]: The dictionary representation.
+        """
         return asdict(self)
 
     def pretty_print(self) -> str:
+        """Generate a pretty-printed string of the story.
+
+        Args:
+            None
+
+        Returns:
+            str: The formatted story.
+        """
         lines = [
             f"Place: {self.place_name}",
             f"Keyword: {self.trigger_keyword}",
@@ -100,6 +142,7 @@ class StoryResult:
 
 @dataclass(slots=True)
 class StorytellerConfig:
+    """Configuration values and defaults for storyteller and TTS services."""
     base: AgentConfig
     cartesia_api_key: str
     cartesia_voice_id: str
@@ -119,7 +162,7 @@ class StorytellerConfig:
             raise ValueError("Missing CARTESIA_API_KEY in environment or .env")
         if not cartesia_voice_id:
             raise ValueError("Missing CARTESIA_VOICE_ID in environment or .env")
-        output_dir = Path(os.environ.get("STORY_AUDIO_DIR", ROOT_DIR / "outputs" / "story_audio"))
+        output_dir = Path(os.environ.get("STORY_AUDIO_DIR", ROOT_DIR / "src" / "tourism_superai" / "outputs" / "story_audio"))
         return cls(
             base=base,
             cartesia_api_key=cartesia_api_key,
@@ -133,6 +176,8 @@ class StorytellerConfig:
 
 
 class CartesiaVoiceClient:
+    """Client wrapper for Cartesia text-to-speech audio generation."""
+
     def __init__(self, config: StorytellerConfig) -> None:
         self.config = config
 
@@ -143,6 +188,16 @@ class CartesiaVoiceClient:
         *,
         language: str = "th",
     ) -> Path:
+        """Synthesize speech from text and save to a file.
+
+        Args:
+            transcript (str): The text to synthesize.
+            output_path (Path): Path to save the audio file.
+            language (str): Language code for synthesis. Defaults to "th".
+
+        Returns:
+            Path: The output path.
+        """
         payload = {
             "model_id": self.config.cartesia_model_id,
             "transcript": transcript,
@@ -176,6 +231,7 @@ class CartesiaVoiceClient:
 
 
 class StorytellerAgent:
+    """Agent that generates location-based narration and optional audio."""
     SYSTEM_PROMPT = textwrap.dedent(
         """
         You are storyteller, an in-car narration agent.
@@ -225,6 +281,19 @@ class StorytellerAgent:
         language: str = "th",
         generate_audio: bool = True,
     ) -> StoryResult:
+        """Create a story for a location with optional audio.
+
+        Args:
+            keyword (str | None): Location keyword.
+            latitude (float): Latitude.
+            longitude (float): Longitude.
+            user_context (str | None): User context. Defaults to None.
+            language (str): Language code. Defaults to "th".
+            generate_audio (bool): Whether to generate audio. Defaults to True.
+
+        Returns:
+            StoryResult: The generated story result.
+        """
         reverse_geocode = self.retriever.reverse_geocode(latitude, longitude) or {}
         inferred_name = self._pick_place_name(keyword, reverse_geocode)
         research_results = self._gather_research(inferred_name, reverse_geocode)
@@ -279,6 +348,15 @@ class StorytellerAgent:
         return story
 
     def _pick_place_name(self, keyword: str | None, reverse_geocode: dict[str, Any]) -> str:
+        """Pick the best place name from keyword or geocode data.
+
+        Args:
+            keyword (str | None): The keyword.
+            reverse_geocode (dict[str, Any]): Reverse geocode data.
+
+        Returns:
+            str: The selected place name.
+        """
         if keyword and keyword.strip():
             return keyword.strip()
         name = str(reverse_geocode.get("name", "")).strip()
@@ -296,6 +374,16 @@ class StorytellerAgent:
         *,
         limit: int = 8,
     ) -> list[SearchResult]:
+        """Gather research results for a place.
+
+        Args:
+            place_name (str): The place name.
+            reverse_geocode (dict[str, Any]): Reverse geocode data.
+            limit (int): Max results. Defaults to 8.
+
+        Returns:
+            list[SearchResult]: List of search results.
+        """
         region_hint = str(reverse_geocode.get("display_name", "")).strip()
         queries = [
             f"{place_name} history legend landmark",
@@ -324,11 +412,27 @@ class StorytellerAgent:
         return results
 
     def _format_research(self, results: list[SearchResult]) -> str:
+        """Format research results into a context string.
+
+        Args:
+            results (list[SearchResult]): The search results.
+
+        Returns:
+            str: Formatted context string.
+        """
         if not results:
             return "No web results available. Use only cautious general knowledge."
         return "\n\n---\n\n".join(item.to_context_block() for item in results)
 
     def _make_output_path(self, place_name: str) -> Path:
+        """Create a unique output path for audio file.
+
+        Args:
+            place_name (str): The place name.
+
+        Returns:
+            Path: The output file path.
+        """
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         filename = f"{_slugify(place_name)}_{timestamp}.wav"
         return self.config.output_dir / filename
@@ -343,6 +447,8 @@ class TriggerRecord:
 
 
 class LocationStoryMonitor:
+    """Monitors location updates and triggers stories with cooldown control."""
+
     def __init__(self, storyteller: StorytellerAgent | None = None) -> None:
         self.storyteller = storyteller or StorytellerAgent()
         self.trigger_history: list[TriggerRecord] = []
@@ -357,6 +463,19 @@ class LocationStoryMonitor:
         language: str = "th",
         generate_audio: bool = True,
     ) -> StoryResult | None:
+        """Handle position update and trigger story if appropriate.
+
+        Args:
+            keyword (str | None): Location keyword.
+            latitude (float): Latitude.
+            longitude (float): Longitude.
+            user_context (str | None): User context. Defaults to None.
+            language (str): Language code. Defaults to "th".
+            generate_audio (bool): Whether to generate audio. Defaults to True.
+
+        Returns:
+            StoryResult | None: The story result or None if not triggered.
+        """
         canonical_key = self._canonical_key(keyword, latitude, longitude)
         now = time.time()
         if not self._should_trigger(canonical_key, latitude, longitude, now):
@@ -382,6 +501,16 @@ class LocationStoryMonitor:
         return story
 
     def _canonical_key(self, keyword: str | None, latitude: float, longitude: float) -> str:
+        """Generate a canonical key for location deduplication.
+
+        Args:
+            keyword (str | None): The keyword.
+            latitude (float): Latitude.
+            longitude (float): Longitude.
+
+        Returns:
+            str: The canonical key.
+        """
         if keyword and keyword.strip():
             return keyword.strip().lower()
         lat_bucket = round(latitude, 3)
@@ -395,6 +524,17 @@ class LocationStoryMonitor:
         longitude: float,
         now: float,
     ) -> bool:
+        """Determine if a story should be triggered based on history and distance.
+
+        Args:
+            canonical_key (str): The canonical key.
+            latitude (float): Latitude.
+            longitude (float): Longitude.
+            now (float): Current timestamp.
+
+        Returns:
+            bool: Whether to trigger.
+        """
         distance_limit = self.storyteller.config.min_retrigger_distance_m
         cooldown = self.storyteller.config.cooldown_seconds
         for record in reversed(self.trigger_history):
@@ -409,6 +549,14 @@ class LocationStoryMonitor:
         return True
 
     def _trim_history(self, now: float) -> None:
+        """Trim old trigger history entries.
+
+        Args:
+            now (float): Current timestamp.
+
+        Returns:
+            None
+        """
         cooldown = self.storyteller.config.cooldown_seconds
         self.trigger_history = [
             item for item in self.trigger_history if now - item.triggered_at <= cooldown * 2
@@ -416,6 +564,14 @@ class LocationStoryMonitor:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Create the command line parser for the storyteller.
+
+    Args:
+        None
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+    """
     parser = argparse.ArgumentParser(description="Landmark storyteller powered by Groq + Cartesia")
     parser.add_argument("--keyword", help="Detected place keyword, e.g. 'Wat Arun'")
     parser.add_argument("--lat", type=float, required=True, help="Latitude")
@@ -428,6 +584,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Run the storyteller from command line.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     parser = _build_parser()
     args = parser.parse_args()
     agent = StorytellerAgent()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Trip planning and research retrieval backend for the Agentic AI Roadtrip service."""
+
 import argparse
 import json
 import os
@@ -13,30 +15,48 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_PATH = ROOT_DIR / ".env"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 def load_env_file(env_path: Path = ENV_PATH) -> None:
-    """Load environment values from a local .env file if present."""
-    if not env_path.exists():
-        return
+    """Load environment values from a local .env file if present.
 
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    This supports both a backend-local `.env` and a repository root `.env`.
+    """
+    search_paths = [env_path]
+    if not env_path.exists():
+        root_env = env_path.parent.parent / ".env"
+        if root_env != env_path:
+            search_paths.append(root_env)
+
+    for path in search_paths:
+        if not path.exists():
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key:
-            # Skip malformed env entries like '=value' instead of 'KEY=value'.
-            continue
-        value = value.strip().strip("'").strip('"')
-        os.environ.setdefault(key, value)
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key:
+                # Skip malformed env entries like '=value' instead of 'KEY=value'.
+                continue
+            value = value.strip().strip("'").strip('"')
+            os.environ.setdefault(key, value)
+        return
 
 
 def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences from text.
+
+    Args:
+        text (str): The text to clean.
+
+    Returns:
+        str: The cleaned text.
+    """
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", cleaned)
@@ -45,6 +65,17 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
+    """Extract a JSON object from text, stripping code fences if present.
+
+    Args:
+        text (str): The text containing JSON.
+
+    Returns:
+        dict[str, Any]: The parsed JSON object.
+
+    Raises:
+        ValueError: If the text is not valid JSON.
+    """
     cleaned = _strip_code_fences(text)
     try:
         parsed = json.loads(cleaned)
@@ -68,6 +99,18 @@ def _http_request(
     payload: dict[str, Any] | None = None,
     timeout: float = 25.0,
 ) -> tuple[bytes, dict[str, str]]:
+    """Make an HTTP request and return response data and headers.
+
+    Args:
+        url (str): The URL to request.
+        method (str): HTTP method. Defaults to "GET".
+        headers (dict[str, str] | None): Request headers. Defaults to None.
+        payload (dict[str, Any] | None): JSON payload. Defaults to None.
+        timeout (float): Request timeout. Defaults to 25.0.
+
+    Returns:
+        tuple[bytes, dict[str, str]]: Response body and headers.
+    """
     body: bytes | None = None
     request_headers = dict(headers or {})
     request_headers.setdefault(
@@ -92,6 +135,14 @@ class SearchResult:
     engine: str | None = None
 
     def to_context_block(self) -> str:
+        """Format the search result as a context block.
+
+        Args:
+            None
+
+        Returns:
+            str: Formatted context string.
+        """
         lines = [
             f"Title: {self.title}",
             f"Snippet: {self.snippet or 'No snippet available.'}",
@@ -105,6 +156,7 @@ class SearchResult:
 
 @dataclass(slots=True)
 class TripStop:
+    """Structured itinerary stop for a trip plan."""
     time: str
     place_name: str
     area: str
@@ -118,6 +170,7 @@ class TripStop:
 
 @dataclass(slots=True)
 class TripPlan:
+    """Data structure representing a complete trip itinerary."""
     trip_title: str
     destination: str
     summary: str
@@ -129,6 +182,14 @@ class TripPlan:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TripPlan":
+        """Create a TripPlan from a dictionary.
+
+        Args:
+            payload (dict[str, Any]): The dictionary payload.
+
+        Returns:
+            TripPlan: The created TripPlan instance.
+        """
         stops = [
             TripStop(
                 time=str(item.get("time", "")),
@@ -156,9 +217,25 @@ class TripPlan:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the TripPlan to a dictionary.
+
+        Args:
+            None
+
+        Returns:
+            dict[str, Any]: The dictionary representation.
+        """
         return asdict(self)
 
     def pretty_print(self) -> str:
+        """Generate a pretty-printed string representation of the trip.
+
+        Args:
+            None
+
+        Returns:
+            str: The formatted trip description.
+        """
         lines = [
             f"Trip: {self.trip_title}",
             f"Destination: {self.destination}",
@@ -191,6 +268,14 @@ class TripPlan:
 
 
 def _to_float(value: Any) -> float | None:
+    """Convert a value to float or None.
+
+    Args:
+        value (Any): The value to convert.
+
+    Returns:
+        float | None: The float value or None.
+    """
     if value in (None, "", "null"):
         return None
     try:
@@ -200,6 +285,14 @@ def _to_float(value: Any) -> float | None:
 
 
 def _as_string_list(value: Any) -> list[str]:
+    """Convert a value to a list of strings.
+
+    Args:
+        value (Any): The value to convert.
+
+    Returns:
+        list[str]: The list of strings.
+    """
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     if isinstance(value, str) and value.strip():
@@ -209,6 +302,7 @@ def _as_string_list(value: Any) -> list[str]:
 
 @dataclass(slots=True)
 class AgentConfig:
+    """Configuration for Groq and search retrieval clients."""
     groq_api_key: str
     searxng_base_url: str | None
     groq_model: str
@@ -243,6 +337,16 @@ class GroqChatClient:
         temperature: float = 0.3,
         max_tokens: int = 1800,
     ) -> dict[str, Any]:
+        """Generate a JSON response from Groq API.
+
+        Args:
+            messages (list[dict[str, str]]): The conversation messages.
+            temperature (float): Sampling temperature. Defaults to 0.3.
+            max_tokens (int): Max tokens. Defaults to 1800.
+
+        Returns:
+            dict[str, Any]: The generated JSON.
+        """
         payload = {
             "model": self.config.groq_model,
             "messages": messages,
@@ -270,6 +374,15 @@ class KnowledgeRetriever:
         self.config = config
 
     def search_web(self, query: str, *, limit: int = 5) -> list[SearchResult]:
+        """Search the web using SearxNG.
+
+        Args:
+            query (str): The search query.
+            limit (int): Max results. Defaults to 5.
+
+        Returns:
+            list[SearchResult]: The search results.
+        """
         if not self.config.searxng_base_url:
             return []
 
@@ -309,6 +422,15 @@ class KnowledgeRetriever:
         return results
 
     def wikipedia_search(self, query: str, *, limit: int = 3) -> list[SearchResult]:
+        """Search Wikipedia for articles.
+
+        Args:
+            query (str): The search query.
+            limit (int): Max results. Defaults to 3.
+
+        Returns:
+            list[SearchResult]: The search results.
+        """
         params = urllib.parse.urlencode(
             {
                 "action": "query",
@@ -343,6 +465,15 @@ class KnowledgeRetriever:
         return results
 
     def reverse_geocode(self, latitude: float, longitude: float) -> dict[str, Any] | None:
+        """Perform reverse geocoding using Nominatim.
+
+        Args:
+            latitude (float): Latitude.
+            longitude (float): Longitude.
+
+        Returns:
+            dict[str, Any] | None: The geocode data or None.
+        """
         params = urllib.parse.urlencode({"format": "jsonv2", "lat": latitude, "lon": longitude})
         url = f"https://nominatim.openstreetmap.org/reverse?{params}"
         headers = {"User-Agent": self.config.wikimedia_user_agent}
@@ -354,6 +485,15 @@ class KnowledgeRetriever:
         return payload
 
     def gather_trip_research(self, prompt: str, *, limit: int = 10) -> list[SearchResult]:
+        """Gather research for trip planning.
+
+        Args:
+            prompt (str): The research prompt.
+            limit (int): Max results. Defaults to 10.
+
+        Returns:
+            list[SearchResult]: The search results.
+        """
         queries = [
             prompt,
             f"{prompt} attractions landmarks",
@@ -382,6 +522,7 @@ class KnowledgeRetriever:
 
 
 class TripDesignAgent:
+    """Agent that generates one-day trip plans from user prompts."""
     SYSTEM_PROMPT = textwrap.dedent(
         """
         You are trip_design, a travel planner for roadtrip and city-trip chatbots.
@@ -436,6 +577,14 @@ class TripDesignAgent:
         self.last_destination_hint: str | None = None
 
     def plan_trip(self, user_prompt: str) -> TripPlan:
+        """Plan a trip based on user prompt.
+
+        Args:
+            user_prompt (str): The user's trip request.
+
+        Returns:
+            TripPlan: The planned trip.
+        """
         search_prompt = self._build_search_prompt(user_prompt)
         research_results = self.retriever.gather_trip_research(search_prompt)
         research_context = self._format_research(research_results)
@@ -471,15 +620,39 @@ class TripDesignAgent:
         return trip
 
     def chat(self, user_prompt: str) -> TripPlan:
+        """Chat interface for trip planning.
+
+        Args:
+            user_prompt (str): The user's message.
+
+        Returns:
+            TripPlan: The trip plan response.
+        """
         return self.plan_trip(user_prompt)
 
     def _build_search_prompt(self, user_prompt: str) -> str:
+        """Build a search prompt from user input.
+
+        Args:
+            user_prompt (str): The user prompt.
+
+        Returns:
+            str: The search prompt.
+        """
         compact = user_prompt.strip()
         if self.last_destination_hint and len(compact) < 40:
             return f"{self.last_destination_hint} {compact}".strip()
         return compact
 
     def _format_history(self) -> str:
+        """Format conversation history for context.
+
+        Args:
+            None
+
+        Returns:
+            str: The formatted history.
+        """
         if not self.chat_history:
             return "No previous messages."
         recent = self.chat_history[-3:]
@@ -489,6 +662,14 @@ class TripDesignAgent:
         return "\n\n".join(blocks)
 
     def _format_research(self, results: Iterable[SearchResult]) -> str:
+        """Format research results into context string.
+
+        Args:
+            results (Iterable[SearchResult]): The search results.
+
+        Returns:
+            str: The formatted context.
+        """
         blocks = [result.to_context_block() for result in results]
         if not blocks:
             return "No web results available. Use general knowledge carefully and clearly state uncertainty."
@@ -496,6 +677,14 @@ class TripDesignAgent:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Create the command line parser for trip design.
+
+    Args:
+        None
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+    """
     parser = argparse.ArgumentParser(description="Trip planning agent powered by Groq + SearxNG")
     parser.add_argument("--prompt", help="Prompt describing the trip you want")
     parser.add_argument("--json", action="store_true", help="Print raw JSON instead of formatted text")
@@ -521,6 +710,14 @@ def _interactive_chat(agent: TripDesignAgent) -> None:
 
 
 def main() -> None:
+    """Run the trip design agent from command line.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     parser = _build_parser()
     args = parser.parse_args()
     agent = TripDesignAgent()

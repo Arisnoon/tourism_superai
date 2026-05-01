@@ -19,14 +19,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from backend.storyteller import LocationStoryMonitor
+from .storyteller import LocationStoryMonitor
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 FRONTEND_FILE = ROOT_DIR / "frontend" / "demo.html"
-ATTRACTION_CSV = ROOT_DIR / "database_demo" / "attraction_clean.csv"
+ATTRACTION_CSV = ROOT_DIR / "src" / "tourism_superai" / "data" / "attraction_clean.csv"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
-STORY_AUDIO_DIR = ROOT_DIR / "backend" / "outputs" / "story_audio"
+STORY_AUDIO_DIR = ROOT_DIR / "src" / "tourism_superai" / "outputs" / "story_audio"
 logger = logging.getLogger("agentic_api")
 
 
@@ -128,12 +128,28 @@ class StoryRequest(BaseModel):
 
 
 def _clean_text(value: str) -> str:
+    """Clean HTML and whitespace from a raw text field.
+
+    Args:
+        value (str): The raw text to clean.
+
+    Returns:
+        str: The cleaned text.
+    """
     stripped = re.sub(r"<[^>]+>", " ", value or "")
     stripped = html.unescape(stripped)
     return " ".join(stripped.split()).strip()
 
 
 def _parse_location(raw: str) -> tuple[float, float] | None:
+    """Parse a comma-separated latitude/longitude string into a coordinate pair.
+
+    Args:
+        raw (str): The raw location string.
+
+    Returns:
+        tuple[float, float] | None: The parsed coordinates or None if invalid.
+    """
     if not raw:
         return None
     parts = [item.strip() for item in raw.split(",")]
@@ -146,6 +162,17 @@ def _parse_location(raw: str) -> tuple[float, float] | None:
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two points using the Haversine formula.
+
+    Args:
+        lat1 (float): Latitude of the first point.
+        lon1 (float): Longitude of the first point.
+        lat2 (float): Latitude of the second point.
+        lon2 (float): Longitude of the second point.
+
+    Returns:
+        float: Distance in kilometers.
+    """
     radius_km = 6_371.0
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -159,6 +186,16 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _interpolate_route(start: tuple[float, float], end: tuple[float, float], points: int = 80) -> list[list[float]]:
+    """Interpolate a route between two points with subtle curvature.
+
+    Args:
+        start (tuple[float, float]): Starting coordinates (lat, lon).
+        end (tuple[float, float]): Ending coordinates (lat, lon).
+        points (int): Number of points to interpolate. Defaults to 80.
+
+    Returns:
+        list[list[float]]: List of [lat, lon] points.
+    """
     lat1, lon1 = start
     lat2, lon2 = end
     route: list[list[float]] = []
@@ -176,6 +213,16 @@ def _interpolate_route(start: tuple[float, float], end: tuple[float, float], poi
 
 
 def _project_xy_km(lat: float, lon: float, ref_lat: float) -> tuple[float, float]:
+    """Project latitude/longitude to approximate x/y coordinates in kilometers.
+
+    Args:
+        lat (float): Latitude.
+        lon (float): Longitude.
+        ref_lat (float): Reference latitude for projection.
+
+    Returns:
+        tuple[float, float]: (x, y) in kilometers.
+    """
     x = lon * 111.320 * math.cos(math.radians(ref_lat))
     y = lat * 110.574
     return x, y
@@ -189,6 +236,18 @@ def _distance_point_to_segment_km(
     *,
     ref_lat: float,
 ) -> float:
+    """Calculate the distance from a point to a line segment.
+
+    Args:
+        point_lat (float): Point latitude.
+        point_lon (float): Point longitude.
+        seg_start (list[float]): Segment start [lat, lon].
+        seg_end (list[float]): Segment end [lat, lon].
+        ref_lat (float): Reference latitude for projection.
+
+    Returns:
+        float: Distance in kilometers.
+    """
     px, py = _project_xy_km(point_lat, point_lon, ref_lat)
     ax, ay = _project_xy_km(seg_start[0], seg_start[1], ref_lat)
     bx, by = _project_xy_km(seg_end[0], seg_end[1], ref_lat)
@@ -212,6 +271,16 @@ def _distance_point_to_segment_km(
 def _distance_to_route_km(
     lat: float, lon: float, route_points: list[list[float]]
 ) -> tuple[float, int]:
+    """Calculate the distance from a point to the nearest point on the route.
+
+    Args:
+        lat (float): Point latitude.
+        lon (float): Point longitude.
+        route_points (list[list[float]]): List of [lat, lon] route points.
+
+    Returns:
+        tuple[float, int]: (distance in km, segment_index)
+    """
     nearest = float("inf")
     nearest_segment = 0
     if len(route_points) < 2:
@@ -232,6 +301,15 @@ def _distance_to_route_km(
 
 
 def _fetch_osrm_route(start: tuple[float, float], end: tuple[float, float]) -> list[list[float]] | None:
+    """Fetch a driving route from OSRM and return waypoints as [lat, lon] pairs.
+
+    Args:
+        start (tuple[float, float]): Start coordinates (lat, lon).
+        end (tuple[float, float]): End coordinates (lat, lon).
+
+    Returns:
+        list[list[float]] | None: Route points as [lat, lon] or None if failed.
+    """
     start_lat, start_lon = start
     end_lat, end_lon = end
     query = urllib.parse.urlencode({"overview": "full", "geometries": "geojson"})
@@ -262,6 +340,16 @@ def _fetch_osrm_route(start: tuple[float, float], end: tuple[float, float]) -> l
 
 
 def _http_get_json(url: str, *, timeout: float = 12.0, headers: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """Fetch JSON data from a URL.
+
+    Args:
+        url (str): The URL to fetch.
+        timeout (float): Request timeout in seconds. Defaults to 12.0.
+        headers (dict[str, str] | None): HTTP headers. Defaults to None.
+
+    Returns:
+        dict[str, Any] | None: Parsed JSON data or None if failed.
+    """
     request = urllib.request.Request(
         url,
         headers=headers
@@ -281,6 +369,14 @@ def _http_get_json(url: str, *, timeout: float = 12.0, headers: dict[str, str] |
 
 
 def _fetch_landmark_media(keyword: str) -> dict[str, str | None]:
+    """Fetch media information for a landmark keyword.
+
+    Args:
+        keyword (str): The landmark keyword to search for.
+
+    Returns:
+        dict[str, str | None]: Dictionary with 'image_url', 'summary', 'source_url'.
+    """
     query = keyword.strip()
     if not query:
         return {"image_url": None, "summary": None, "source_url": None}
@@ -342,6 +438,14 @@ def _fetch_landmark_media(keyword: str) -> dict[str, str | None]:
 
 
 def _load_attractions() -> list[dict[str, Any]]:
+    """Load attraction records from the CSV dataset and normalize fields.
+
+    Args:
+        None
+
+    Returns:
+        list[dict[str, Any]]: List of attraction dictionaries.
+    """
     if not ATTRACTION_CSV.exists():
         return []
     records: list[dict[str, Any]] = []
@@ -402,6 +506,14 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
+    """Get the health status of the API service.
+
+    Args:
+        None
+
+    Returns:
+        dict[str, str]: Health status information.
+    """
     return {
         "status": "ok",
         "service": "agentic_api",
@@ -413,12 +525,28 @@ def health() -> dict[str, str]:
 
 @app.get("/api/provinces")
 def provinces() -> dict[str, Any]:
+    """Get the list of available Thai provinces with location data.
+
+    Args:
+        None
+
+    Returns:
+        dict[str, Any]: Dictionary with 'items' and 'count'.
+    """
     available = sorted({name for name in THAI_PROVINCES if name in PROVINCE_POINTS})
     return {"items": available, "count": len(available)}
 
 
 @app.post("/api/route")
 def build_route(payload: RouteRequest) -> dict[str, Any]:
+    """Build a scenic route between two Thai provinces with optional landmarks.
+
+    Args:
+        payload (RouteRequest): Request payload with start/end provinces and options.
+
+    Returns:
+        dict[str, Any]: Route data including points, distance, and landmarks.
+    """
     start = payload.start_province.strip()
     end = payload.end_province.strip()
     if start == end:
@@ -502,6 +630,14 @@ def build_route(payload: RouteRequest) -> dict[str, Any]:
 
 @app.post("/api/story")
 def create_story(payload: StoryRequest) -> dict[str, Any]:
+    """Generate a location-based story and optional audio.
+
+    Args:
+        payload (StoryRequest): Request payload with keyword, location, and options.
+
+    Returns:
+        dict[str, Any]: Story data including narration and media.
+    """
     if STORY_MONITOR is None:
         raise HTTPException(
             status_code=503,
@@ -575,6 +711,14 @@ def create_story(payload: StoryRequest) -> dict[str, Any]:
 
 @app.get("/api/audio/{filename}")
 def stream_audio(filename: str) -> FileResponse:
+    """Stream an audio file for a generated story.
+
+    Args:
+        filename (str): The audio filename.
+
+    Returns:
+        FileResponse: The audio file response.
+    """
     audio_path = STORY_AUDIO_DIR / filename
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail="Audio file not found")
@@ -583,6 +727,14 @@ def stream_audio(filename: str) -> FileResponse:
 
 @app.get("/")
 def demo_frontend() -> FileResponse:
+    """Serve the demo frontend HTML page.
+
+    Args:
+        None
+
+    Returns:
+        FileResponse: The HTML file response.
+    """
     if not FRONTEND_FILE.exists():
         return JSONResponse(
             status_code=404,
@@ -592,6 +744,14 @@ def demo_frontend() -> FileResponse:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Create the command line parser for the backend.
+
+    Args:
+        None
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+    """
     parser = argparse.ArgumentParser(description="Run the Agentic FastAPI backend")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host")
     parser.add_argument("--port", type=int, default=8000, help="Bind port")
@@ -600,6 +760,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Load env vars and start the FastAPI backend using uvicorn.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     args = _build_parser().parse_args()
     try:
         import uvicorn

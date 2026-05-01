@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Audio output and generated files
+backend/outputs/
