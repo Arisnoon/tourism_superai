@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thailand Roadtrip Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&family=Kanit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --orange-deep:  #c2410c;
+      --orange-main:  #ea580c;
+      --orange-mid:   #f97316;
+      --orange-light: #fed7aa;
+      --orange-pale:  #fff7ed;
+      --amber:        #f59e0b;
+      --mid:          #78350f;
+      --text:         #1c0a00;
+      --text-muted:   #92400e;
+      --border:       #fcd9a8;
+      --surface:      #ffffff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background: var(--orange-pale);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      height: 100vh;
+    }
+
+    /* ===== PANEL ===== */
+    .panel {
+      background: var(--surface);
+      border-right: 2px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: linear-gradient(135deg, var(--orange-main) 0%, var(--orange-deep) 100%);
+      padding: 22px 20px 18px;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .panel-header::before {
+      content: '';
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 110px; height: 110px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.09);
+    }
+
+    .panel-header::after {
+      content: '';
+      position: absolute;
+      bottom: -24px; left: 14px;
+      width: 70px; height: 70px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .panel-header h1 {
+      font-family: 'Kanit', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.02em;
+      position: relative;
+    }
+
+    .panel-header p {
+      font-size: 11px;
+      color: rgba(255,255,255,0.70);
+      margin-top: 3px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      position: relative;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 16px 24px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--orange-light) transparent;
+    }
+
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--orange-light); border-radius: 2px; }
+
+    /* ===== LABELS ===== */
+    .section-label {
+      font-family: 'Kanit', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--orange-deep);
+      margin-bottom: 6px;
+      margin-top: 16px;
+      display: block;
+    }
+
+    .section-label:first-child { margin-top: 0; }
+
+    /* ===== SELECT ===== */
+    .select-wrap {
+      position: relative;
+      margin-bottom: 10px;
+    }
+
+    .select-wrap::after {
+      content: '';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid var(--orange-main);
+      pointer-events: none;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px 34px 10px 12px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border);
+      background: var(--orange-pale);
+      font-family: 'Sarabun', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      appearance: none;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+
+    select:focus {
+      border-color: var(--orange-main);
+      box-shadow: 0 0 0 3px rgba(234,88,12,0.12);
+    }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      width: 100%;
+      padding: 11px 16px;
+      border-radius: 8px;
+      border: none;
+      font-family: 'Kanit', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--orange-mid), var(--orange-deep));
+      color: #fff;
+      box-shadow: 0 3px 12px rgba(234,88,12,0.30);
+      margin-top: 4px;
+    }
+
+    .btn-primary:hover { box-shadow: 0 5px 18px rgba(234,88,12,0.40); }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--amber), #d97706);
+      color: #fff;
+      box-shadow: 0 3px 12px rgba(245,158,11,0.28);
+      margin-top: 8px;
+    }
+
+    .btn-secondary:hover { box-shadow: 0 5px 18px rgba(245,158,11,0.38); }
+
+    .btn:disabled {
+      background: #e5e7eb;
+      color: #9ca3af;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ===== STATUS ===== */
+    .meta-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: var(--orange-pale);
+      border: 1.5px solid var(--orange-light);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--mid);
+      line-height: 1.5;
+      transition: border-color 0.2s;
+    }
+
+    .meta-box.active {
+      border-color: var(--orange-main);
+      color: var(--orange-deep);
+    }
+
+    /* ===== STORY BOX ===== */
+    .story-section {
+      margin-top: 14px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1.5px solid var(--border);
+    }
+
+    .story-header {
+      background: var(--orange-deep);
+      padding: 8px 12px;
+      font-family: 'Kanit', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    .story-body {
+      background: var(--surface);
+      padding: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.7;
+      min-height: 56px;
+    }
+
+    /* ===== DIVIDER ===== */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0 12px;
+    }
+
+    /* ===== LANDMARK LIST ===== */
+    .landmarks-title {
+      font-family: 'Kanit', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--orange-deep);
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+
+    .landmark-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 6px;
+      background: var(--orange-pale);
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: var(--text);
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .landmark-item:hover {
+      border-color: var(--orange-main);
+      background: #fff;
+    }
+
+    .landmark-item strong {
+      font-family: 'Kanit', sans-serif;
+      font-size: 13px;
+      color: var(--orange-deep);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .landmark-item .lm-province {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .landmark-badge {
+      display: inline-block;
+      margin-top: 4px;
+      background: var(--orange-light);
+      color: var(--orange-deep);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 1px 8px;
+      border-radius: 20px;
+      font-family: 'Kanit', sans-serif;
+    }
+
+    /* ===== MAP ===== */
+    #map { width: 100%; height: 100%; }
+
+    /* Leaflet popup */
+    .leaflet-popup-content-wrapper {
+      border-radius: 10px;
+      font-family: 'Sarabun', sans-serif;
+      font-size: 13px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="panel">
+      <div class="panel-header">
+        <h1>Roadtrip 77 จังหวัด</h1>
+        <p>Thailand Route Planner</p>
+      </div>
+      <div class="panel-body">
+
+        <span class="section-label">จุดเริ่มต้น</span>
+        <div class="select-wrap">
+          <select id="startProvince"></select>
+        </div>
+
+        <span class="section-label">ปลายทาง</span>
+        <div class="select-wrap">
+          <select id="endProvince"></select>
+        </div>
+
+        <span class="section-label">ความเร็วการเดินทาง</span>
+        <div class="select-wrap">
+          <select id="travelMode">
+            <option value="walk">เดิน</option>
+            <option value="motorbike">มอไซ</option>
+            <option value="car" selected>รถยนต์</option>
+          </select>
+        </div>
+
+        <span class="section-label">ภาษาแนะนำ</span>
+        <div class="select-wrap">
+          <select id="narrationLanguage">
+            <option value="th" selected>ไทย (TH)</option>
+            <option value="en">English (EN)</option>
+            <option value="zh">Chinese (ZH)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary" id="buildRouteBtn">สร้างเส้นทางที่เหมาะสมที่สุด</button>
+        <button class="btn btn-secondary" id="startTripBtn" disabled>เริ่มเดินทาง</button>
+        <button class="btn btn-secondary" id="pauseTripBtn" disabled>หยุดการเดินทาง</button>
+
+        <div class="meta-box" id="meta">รอเลือกจุดเริ่มต้นและปลายทาง</div>
+
+        <div class="divider"></div>
+
+        <div class="landmarks-title">Landmarks ระหว่างทาง</div>
+        <div id="landmarkList"></div>
+
+      </div>
+    </aside>
+    <main id="map"></main>
+  </div>
+
+  <div id="landmarkPanel" style="position:fixed;right:18px;bottom:18px;width:340px;max-width:90vw;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden;display:none;z-index:9999">
+    <div style="background:var(--orange-deep);color:#fff;padding:10px 12px;font-family:'Kanit',sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Landmark Detail</div>
+    <img id="landmarkPanelImage" src="" alt="Landmark image" style="width:100%;height:150px;object-fit:cover;display:none" />
+    <div style="padding:12px">
+      <div id="landmarkPanelTitle" style="font-weight:700;color:var(--orange-deep);margin-bottom:4px"></div>
+      <div id="landmarkPanelProvince" style="font-size:12px;color:var(--text-muted);margin-bottom:8px"></div>
+      <div id="landmarkPanelSummary" style="font-size:12px;line-height:1.6;color:var(--text);margin-bottom:10px"></div>
+      <button class="btn btn-secondary" id="landmarkListenBtn">ฟังคำแนะนำจุดนี้</button>
+      <a id="landmarkSourceLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;margin-top:10px;font-size:12px;color:var(--orange-main)">แหล่งข้อมูล</a>
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-family:'Kanit',sans-serif;font-size:11px;color:var(--orange-deep);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Storyteller</div>
+        <div id="storyLoadingWrap" style="display:none">
+          <div style="height:8px;background:#fde8d4;border-radius:999px;overflow:hidden">
+            <div id="storyLoadingBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--orange-main),var(--amber));transition:width .25s ease"></div>
+          </div>
+          <div id="storyLoadingText" style="font-size:11px;color:var(--text-muted);margin-top:6px">กำลังสร้างบทแนะนำ...</div>
+        </div>
+        <div id="landmarkStoryBox" style="font-size:12px;line-height:1.6;color:var(--text-muted);margin-top:8px">ยังไม่มีการบรรยายสำหรับจุดนี้</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE = window.location.origin;
+    const map = L.map("map").setView([13.736717, 100.523186], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 18
+    }).addTo(map);
+
+    const state = {
+      provinces: [],
+      routePoints: [],
+      landmarks: [],
+      routeLine: null,
+      landmarkMarkers: [],
+      movingMarker: null,
+      visitedLandmarks: new Set(),
+      traveling: false,
+      paused: false,
+      currentAudio: null,
+      currentRouteIndex: 0,
+      tickTimer: null,
+      selectedLandmark: null
+    };
+
+    const startSelect  = document.getElementById("startProvince");
+    const endSelect    = document.getElementById("endProvince");
+    const travelModeSelect = document.getElementById("travelMode");
+    const narrationLanguageSelect = document.getElementById("narrationLanguage");
+    const buildRouteBtn = document.getElementById("buildRouteBtn");
+    const startTripBtn  = document.getElementById("startTripBtn");
+    const pauseTripBtn = document.getElementById("pauseTripBtn");
+    const meta         = document.getElementById("meta");
+    const landmarkList = document.getElementById("landmarkList");
+    const landmarkPanel = document.getElementById("landmarkPanel");
+    const landmarkPanelImage = document.getElementById("landmarkPanelImage");
+    const landmarkPanelTitle = document.getElementById("landmarkPanelTitle");
+    const landmarkPanelProvince = document.getElementById("landmarkPanelProvince");
+    const landmarkPanelSummary = document.getElementById("landmarkPanelSummary");
+    const landmarkListenBtn = document.getElementById("landmarkListenBtn");
+    const landmarkSourceLink = document.getElementById("landmarkSourceLink");
+    const storyLoadingWrap = document.getElementById("storyLoadingWrap");
+    const storyLoadingBar = document.getElementById("storyLoadingBar");
+    const storyLoadingText = document.getElementById("storyLoadingText");
+    const landmarkStoryBox = document.getElementById("landmarkStoryBox");
+
+    function setStatus(text, active = false) {
+      meta.textContent = text;
+      meta.className = active ? "meta-box active" : "meta-box";
+    }
+
+    function clearMapLayers() {
+      stopCurrentAudio();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      state.traveling = false;
+      state.paused = false;
+      state.currentRouteIndex = 0;
+      if (state.tickTimer) {
+        window.clearTimeout(state.tickTimer);
+        state.tickTimer = null;
+      }
+      if (state.routeLine) { map.removeLayer(state.routeLine); state.routeLine = null; }
+      state.landmarkMarkers.forEach(m => map.removeLayer(m));
+      state.landmarkMarkers = [];
+      if (state.movingMarker) { map.removeLayer(state.movingMarker); state.movingMarker = null; }
+      state.visitedLandmarks.clear();
+      pauseTripBtn.disabled = true;
+      state.selectedLandmark = null;
+      landmarkPanel.style.display = "none";
+    }
+
+    async function loadProvinces() {
+      setStatus("กำลังโหลดรายชื่อจังหวัด...");
+      const res = await fetch(`${API_BASE}/api/provinces`);
+      const payload = await res.json();
+      state.provinces = payload.items || [];
+      [startSelect, endSelect].forEach(sel => {
+        sel.innerHTML = state.provinces.map(n => `<option value="${n}">${n}</option>`).join("");
+      });
+      startSelect.value = "กรุงเทพมหานคร";
+      endSelect.value   = "เชียงใหม่";
+      setStatus(`โหลดจังหวัดสำเร็จ ${payload.count} จังหวัด`);
+    }
+
+    function renderLandmarkList() {
+      if (!state.landmarks.length) {
+        landmarkList.innerHTML = '<div class="landmark-item"><span class="lm-province">ไม่พบ landmark ใกล้เส้นทาง</span></div>';
+        return;
+      }
+      landmarkList.innerHTML = state.landmarks.map((lm, i) => `
+        <div class="landmark-item" data-lm-index="${i}" style="cursor:pointer">
+          <strong>${i + 1}. ${lm.name}</strong>
+          <span class="lm-province">${lm.province}</span><br/>
+          <span class="landmark-badge">${lm.distance_to_route_km} กม. จากเส้นทาง</span>
+        </div>
+      `).join("");
+      landmarkList.querySelectorAll(".landmark-item[data-lm-index]").forEach(el => {
+        el.addEventListener("click", () => {
+          const idx = Number(el.getAttribute("data-lm-index"));
+          const lm = state.landmarks[idx];
+          if (!lm) return;
+          openLandmarkPanel(lm);
+          map.panTo([lm.lat, lm.lon], { animate: true });
+        });
+      });
+    }
+
+    function openLandmarkPanel(landmark, media = null) {
+      state.selectedLandmark = landmark;
+      landmarkPanelTitle.textContent = landmark.name || "";
+      landmarkPanelProvince.textContent = landmark.province || "";
+      landmarkPanelSummary.textContent = (media && media.summary) || landmark.detail || "กดฟังคำแนะนำเพื่อสร้างเนื้อหา";
+      if (media && media.image_url) {
+        landmarkPanelImage.src = media.image_url;
+        landmarkPanelImage.style.display = "block";
+      } else {
+        landmarkPanelImage.src = "";
+        landmarkPanelImage.style.display = "none";
+      }
+      if (media && media.source_url) {
+        landmarkSourceLink.href = media.source_url;
+        landmarkSourceLink.style.display = "inline-block";
+      } else {
+        landmarkSourceLink.href = "#";
+        landmarkSourceLink.style.display = "none";
+      }
+      storyLoadingWrap.style.display = "none";
+      storyLoadingBar.style.width = "0%";
+      storyLoadingText.textContent = "กำลังสร้างบทแนะนำ...";
+      landmarkStoryBox.textContent = "ยังไม่มีการบรรยายสำหรับจุดนี้";
+      landmarkPanel.style.display = "block";
+    }
+
+    function renderRoute(routePoints, landmarks) {
+      clearMapLayers();
+      state.routePoints = routePoints;
+      state.landmarks = landmarks;
+
+      state.routeLine = L.polyline(routePoints, {
+        color: "#ea580c", weight: 4, opacity: 0.88
+      }).addTo(map);
+
+      state.landmarkMarkers = landmarks.map(lm => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="width:12px;height:12px;border-radius:50%;background:#f97316;border:2px solid #c2410c;box-shadow:0 1px 5px rgba(0,0,0,0.30)"></div>`,
+          iconSize: [12, 12], iconAnchor: [6, 6]
+        });
+        const marker = L.marker([lm.lat, lm.lon], { icon }).addTo(map);
+        marker.bindPopup(`<strong>${lm.name}</strong><br/>${lm.province}${lm.category ? '<br/>' + lm.category : ''}`);
+        marker.on("click", () => openLandmarkPanel(lm));
+        return marker;
+      });
+
+      map.fitBounds(state.routeLine.getBounds(), { padding: [24, 24] });
+      renderLandmarkList();
+    }
+
+    async function buildRoute() {
+      try {
+        setStatus("กำลังคำนวณเส้นทาง...", true);
+        const res = await fetch(`${API_BASE}/api/route`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start_province: startSelect.value,
+            end_province: endSelect.value,
+            max_landmarks: 20
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "สร้างเส้นทางไม่สำเร็จ");
+        }
+        const payload = await res.json();
+        renderRoute(payload.route_points, payload.landmarks);
+        startTripBtn.disabled = false;
+        pauseTripBtn.disabled = true;
+        setStatus(
+          `ระยะทาง ${payload.distance_km} กม. | Landmarks ${payload.landmarks.length} จุด | โหมดเส้นทาง: ${payload.routing_mode}`
+        );
+      } catch (e) {
+        setStatus(`เกิดข้อผิดพลาด: ${e.message}`);
+      }
+    }
+
+    function nearestLandmark(pos) {
+      let best = null, bestD = Infinity;
+      state.landmarks.forEach(lm => {
+        if (state.visitedLandmarks.has(lm.name)) return;
+        const d = Math.hypot(pos[0] - lm.lat, pos[1] - lm.lon);
+        if (d < bestD) { bestD = d; best = lm; }
+      });
+      return { landmark: best, distance: bestD };
+    }
+
+    function stopCurrentAudio() {
+      if (!state.currentAudio) return;
+      state.currentAudio.pause();
+      state.currentAudio.src = "";
+      state.currentAudio = null;
+    }
+
+    function playAudioUrl(url) {
+      return new Promise((resolve, reject) => {
+        stopCurrentAudio();
+        const audio = new Audio(url);
+        state.currentAudio = audio;
+        audio.onended = () => { state.currentAudio = null; resolve(); };
+        audio.onerror = () => { state.currentAudio = null; reject(new Error("เล่นเสียงไม่สำเร็จ")); };
+        audio.play().catch(reject);
+      });
+    }
+
+    function speakFallback(text) {
+      return new Promise(resolve => {
+        if (!window.speechSynthesis || !text) { resolve(); return; }
+        const u = new SpeechSynthesisUtterance(text);
+        const langCode = narrationLanguageSelect.value === "en" ? "en-US" : (narrationLanguageSelect.value === "zh" ? "zh-CN" : "th-TH");
+        u.lang = langCode;
+        u.onend = u.onerror = () => resolve();
+        window.speechSynthesis.speak(u);
+      });
+    }
+
+    function startStoryLoading() {
+      storyLoadingWrap.style.display = "block";
+      storyLoadingBar.style.width = "0%";
+      storyLoadingText.textContent = "กำลังสร้างบทแนะนำด้วย Storyteller...";
+      let progress = 0;
+      const timer = window.setInterval(() => {
+        progress = Math.min(progress + 6, 85);
+        storyLoadingBar.style.width = `${progress}%`;
+      }, 180);
+      return {
+        complete: () => {
+          window.clearInterval(timer);
+          storyLoadingBar.style.width = "100%";
+          storyLoadingText.textContent = "สร้างบทแนะนำสำเร็จ กำลังเล่นเสียง...";
+        },
+        fail: () => {
+          window.clearInterval(timer);
+          storyLoadingBar.style.width = "100%";
+          storyLoadingText.textContent = "ไม่สามารถสร้างบทแนะนำได้";
+        },
+      };
+    }
+
+    async function triggerStory(landmark) {
+      const loader = startStoryLoading();
+      try {
+        const res = await fetch(`${API_BASE}/api/story`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keyword: landmark.name,
+            latitude: landmark.lat,
+            longitude: landmark.lon,
+            user_context: `ผู้ใช้เดินทางจาก ${startSelect.value} ไป ${endSelect.value}`,
+            language: narrationLanguageSelect.value,
+            generate_audio: true
+          })
+        });
+        const payload = await res.json();
+        if (payload.triggered && payload.story) {
+          loader.complete();
+          const narration = payload.story.narration_script || payload.story.story_hook || "";
+          landmarkStoryBox.innerHTML = `<strong style="color:var(--orange-deep)">${payload.story.place_name}</strong><br/>${narration}`;
+          if (payload.media) {
+            openLandmarkPanel(landmark, payload.media);
+            storyLoadingWrap.style.display = "block";
+            storyLoadingBar.style.width = "100%";
+            storyLoadingText.textContent = "สร้างบทแนะนำสำเร็จ กำลังเล่นเสียง...";
+            landmarkStoryBox.innerHTML = `<strong style="color:var(--orange-deep)">${payload.story.place_name}</strong><br/>${narration}`;
+          }
+          setStatus(`จอดฟังคำแนะนำ: ${payload.story.place_name}`, true);
+          if (payload.story.audio_url) {
+            await playAudioUrl(`${API_BASE}${payload.story.audio_url}`);
+          } else {
+            await speakFallback(narration);
+          }
+          storyLoadingWrap.style.display = "none";
+          setStatus("กำลังเดินทางต่อ...");
+        } else {
+          loader.fail();
+          landmarkStoryBox.textContent = `ผ่าน ${landmark.name} แล้ว`;
+        }
+      } catch {
+        loader.fail();
+        landmarkStoryBox.textContent = `ไม่สามารถเรียก storyteller สำหรับ ${landmark.name}`;
+      }
+    }
+
+    function getMovementProfile() {
+      const mode = travelModeSelect.value;
+      if (mode === "walk") return { jump: 1, intervalMs: 240, label: "เดิน" };
+      if (mode === "motorbike") return { jump: 4, intervalMs: 120, label: "มอไซ" };
+      return { jump: 7, intervalMs: 100, label: "รถยนต์" };
+    }
+
+    function updateTravelButtons() {
+      startTripBtn.disabled = state.routePoints.length < 2 || state.traveling;
+      pauseTripBtn.disabled = !state.traveling;
+      pauseTripBtn.textContent = state.paused ? "ไปต่อ" : "หยุดการเดินทาง";
+    }
+
+    async function travelStep() {
+      if (!state.traveling) return;
+      if (state.paused) {
+        state.tickTimer = window.setTimeout(travelStep, 220);
+        return;
+      }
+      if (state.currentRouteIndex >= state.routePoints.length) {
+        state.traveling = false;
+        setStatus("เดินทางถึงปลายทางแล้ว");
+        updateTravelButtons();
+        return;
+      }
+      const profile = getMovementProfile();
+      const point = state.routePoints[state.currentRouteIndex];
+      state.movingMarker.setLatLng(point);
+      map.panTo(point, { animate: false });
+      state.currentRouteIndex = Math.min(state.currentRouteIndex + profile.jump, state.routePoints.length);
+      setStatus(`กำลังเดินทาง (${profile.label})... จุดที่ผ่าน ${state.currentRouteIndex}/${state.routePoints.length}`, true);
+      state.tickTimer = window.setTimeout(travelStep, profile.intervalMs);
+    }
+
+    function startTravel() {
+      if (state.routePoints.length < 2 || state.traveling) return;
+      state.traveling = true;
+      state.paused = false;
+      state.currentRouteIndex = 0;
+      if (!state.movingMarker) {
+        state.movingMarker = L.circleMarker(state.routePoints[0], {
+          radius: 9, color: "#c2410c", fillColor: "#ea580c",
+          fillOpacity: 1, weight: 2.5
+        }).addTo(map);
+      }
+      updateTravelButtons();
+      travelStep();
+    }
+
+    function togglePause() {
+      if (!state.traveling) return;
+      state.paused = !state.paused;
+      setStatus(state.paused ? "หยุดการเดินทางแล้ว (กดฟังคำแนะนำได้)" : "กำลังเดินทางต่อ...", state.paused);
+      updateTravelButtons();
+    }
+
+    buildRouteBtn.addEventListener("click", buildRoute);
+    startTripBtn.addEventListener("click", startTravel);
+    pauseTripBtn.addEventListener("click", togglePause);
+    landmarkListenBtn.addEventListener("click", async () => {
+      if (!state.selectedLandmark) {
+        setStatus("เลือก landmark บนแผนที่ก่อน");
+        return;
+      }
+      state.visitedLandmarks.add(state.selectedLandmark.name);
+      await triggerStory(state.selectedLandmark);
+    });
+    loadProvinces().catch(e => setStatus(`โหลดจังหวัดไม่สำเร็จ: ${e.message}`));
+  </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+[project]
+name = "tourism_superai"
+version = "0.1.0"
+description = "Agentic AI Roadtrip backend for scenic route planning and location storytelling."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.105.0",
+    "pydantic>=2.8.0",
+    "uvicorn[standard]>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Arisnoon/tourism_superai"
+Repository = "https://github.com/Arisnoon/tourism_superai"
+
+[project.scripts]
+tourism-superai = "run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
