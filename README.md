@@ -78,6 +78,123 @@ Then visit:
 - `http://127.0.0.1:8000/api/provinces`
 - `http://127.0.0.1:8000/`
 
+## API Documentation
+
+Swagger UI is available after starting the backend:
+
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
+
+### `GET /api/health`
+
+Checks whether the API is running and reports dataset/storyteller readiness.
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "service": "agentic_api",
+  "attraction_count": "1200",
+  "storyteller_ready": "True",
+  "groq_model": "openai/gpt-oss-120b"
+}
+```
+
+### `GET /api/provinces`
+
+Returns Thai provinces that have attraction coordinates available for route planning.
+
+Example response:
+
+```json
+{
+  "items": ["กรุงเทพมหานคร", "เชียงใหม่"],
+  "count": 2
+}
+```
+
+### `POST /api/route`
+
+Builds a scenic route between two Thai provinces and returns route points, distance, and nearby landmarks.
+
+Example request:
+
+```json
+{
+  "start_province": "กรุงเทพมหานคร",
+  "end_province": "เชียงใหม่",
+  "max_landmarks": 12,
+  "max_distance_to_route_km": 15.0
+}
+```
+
+Example response shape:
+
+```json
+{
+  "start_province": "กรุงเทพมหานคร",
+  "end_province": "เชียงใหม่",
+  "route_points": [[13.75, 100.49]],
+  "distance_km": 685.42,
+  "landmarks": [
+    {
+      "name": "Example landmark",
+      "province": "Example province",
+      "lat": 13.75,
+      "lon": 100.49,
+      "detail": "Short description",
+      "category": "Attraction",
+      "distance_to_route_km": 2.5,
+      "route_segment_index": 4
+    }
+  ],
+  "routing_mode": "osrm"
+}
+```
+
+### `POST /api/story`
+
+Generates a location-based travel story. This endpoint requires `GROQ_API_KEY`; audio generation also requires `CARTESIA_API_KEY`.
+
+Example request:
+
+```json
+{
+  "keyword": "วัดพระแก้ว",
+  "latitude": 13.7515,
+  "longitude": 100.4924,
+  "user_context": "family roadtrip from Bangkok",
+  "language": "th",
+  "generate_audio": false
+}
+```
+
+Example response shape:
+
+```json
+{
+  "triggered": true,
+  "story": {
+    "trigger_keyword": "วัดพระแก้ว",
+    "place_name": "วัดพระแก้ว",
+    "headline": "Story headline",
+    "narration_script": "Narration text",
+    "audio_url": null
+  },
+  "media": {
+    "image_url": null,
+    "summary": null,
+    "source_url": null
+  }
+}
+```
+
+### `GET /api/audio/{filename}`
+
+Streams a generated story audio file. The filename is returned as `audio_url` from `/api/story` when audio generation succeeds.
+
 ## Notes
 
 - The backend uses OSRM for route geometry when available and falls back to a linear route generator.

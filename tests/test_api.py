@@ -19,3 +19,13 @@ def test_health(client):
     data = response.json()
     assert "status" in data
     assert data["status"] == "ok"
+
+
+def test_openapi_schema(client):
+    """Test that Swagger/OpenAPI documentation is exposed."""
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["info"]["title"] == "Agentic AI Roadtrip API"
+    assert "/api/route" in data["paths"]
+    assert "/api/story" in data["paths"]

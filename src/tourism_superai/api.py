@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .storyteller import LocationStoryMonitor
 
@@ -112,19 +112,100 @@ THAI_PROVINCES = [
 
 
 class RouteRequest(BaseModel):
-    start_province: str
-    end_province: str
-    max_landmarks: int = 40
-    max_distance_to_route_km: float = 10.0
+    start_province: str = Field(
+        ...,
+        examples=["กรุงเทพมหานคร"],
+        description="Thai province name where the trip starts.",
+    )
+    end_province: str = Field(
+        ...,
+        examples=["เชียงใหม่"],
+        description="Thai province name where the trip ends.",
+    )
+    max_landmarks: int = Field(
+        40,
+        ge=3,
+        le=80,
+        description="Maximum number of scenic landmarks to return.",
+    )
+    max_distance_to_route_km: float = Field(
+        10.0,
+        gt=0,
+        le=100,
+        description="Maximum landmark distance from the route in kilometers.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "start_province": "กรุงเทพมหานคร",
+                    "end_province": "เชียงใหม่",
+                    "max_landmarks": 12,
+                    "max_distance_to_route_km": 15.0,
+                }
+            ]
+        }
+    }
 
 
 class StoryRequest(BaseModel):
-    keyword: str
-    latitude: float
-    longitude: float
-    user_context: str | None = None
-    language: str = "th"
-    generate_audio: bool = False
+    keyword: str = Field(
+        ...,
+        examples=["วัดพระแก้ว"],
+        description="Place, landmark, or attraction keyword for story generation.",
+    )
+    latitude: float = Field(..., examples=[13.7515], description="Current latitude.")
+    longitude: float = Field(..., examples=[100.4924], description="Current longitude.")
+    user_context: str | None = Field(
+        None,
+        examples=["family roadtrip from Bangkok"],
+        description="Optional travel context to personalize the story.",
+    )
+    language: str = Field(
+        "th",
+        examples=["th"],
+        description="Narration language code. Thai is the default.",
+    )
+    generate_audio: bool = Field(
+        False,
+        description="Set true to generate TTS audio when Cartesia is configured.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "keyword": "วัดพระแก้ว",
+                    "latitude": 13.7515,
+                    "longitude": 100.4924,
+                    "user_context": "family roadtrip from Bangkok",
+                    "language": "th",
+                    "generate_audio": False,
+                }
+            ]
+        }
+    }
+
+
+OPENAPI_TAGS = [
+    {
+        "name": "System",
+        "description": "Service health and runtime readiness endpoints.",
+    },
+    {
+        "name": "Routes",
+        "description": "Build scenic province-to-province routes with nearby attractions.",
+    },
+    {
+        "name": "Stories",
+        "description": "Generate location-aware travel narration and optional audio.",
+    },
+    {
+        "name": "Frontend",
+        "description": "Serve the browser demo for local testing.",
+    },
+]
 
 
 def _clean_text(value: str) -> str:
@@ -493,7 +574,20 @@ try:
 except Exception as exc:  # noqa: BLE001
     STORY_INIT_ERROR = str(exc)
 
-app = FastAPI(title="Agentic AI Roadtrip API", version="1.0.0")
+app = FastAPI(
+    title="Agentic AI Roadtrip API",
+    summary="Scenic route planning and location storytelling for Thailand roadtrips.",
+    description=(
+        "Tourism SuperAI provides FastAPI endpoints for route building, landmark discovery, "
+        "and AI-generated location stories. Use the Swagger UI to try requests directly "
+        "from the browser during local development."
+    ),
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    openapi_tags=OPENAPI_TAGS,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -504,7 +598,12 @@ app.add_middleware(
 )
 
 
-@app.get("/api/health")
+@app.get(
+    "/api/health",
+    tags=["System"],
+    summary="Check API health",
+    description="Returns service status, dataset size, storyteller readiness, and active Groq model.",
+)
 def health() -> dict[str, str]:
     """Get the health status of the API service.
 
@@ -523,7 +622,12 @@ def health() -> dict[str, str]:
     }
 
 
-@app.get("/api/provinces")
+@app.get(
+    "/api/provinces",
+    tags=["Routes"],
+    summary="List available provinces",
+    description="Returns Thai provinces that have attraction coordinates available for route planning.",
+)
 def provinces() -> dict[str, Any]:
     """Get the list of available Thai provinces with location data.
 
@@ -537,7 +641,15 @@ def provinces() -> dict[str, Any]:
     return {"items": available, "count": len(available)}
 
 
-@app.post("/api/route")
+@app.post(
+    "/api/route",
+    tags=["Routes"],
+    summary="Build scenic route",
+    description=(
+        "Creates a route between two Thai provinces, estimates distance, and returns attractions "
+        "near the route. OSRM is used when available, with a local fallback route generator."
+    ),
+)
 def build_route(payload: RouteRequest) -> dict[str, Any]:
     """Build a scenic route between two Thai provinces with optional landmarks.
 
@@ -628,7 +740,15 @@ def build_route(payload: RouteRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/story")
+@app.post(
+    "/api/story",
+    tags=["Stories"],
+    summary="Generate location story",
+    description=(
+        "Generates an AI travel story for a location keyword and coordinate. "
+        "Requires GROQ_API_KEY. Audio generation also requires CARTESIA_API_KEY."
+    ),
+)
 def create_story(payload: StoryRequest) -> dict[str, Any]:
     """Generate a location-based story and optional audio.
 
@@ -709,7 +829,12 @@ def create_story(payload: StoryRequest) -> dict[str, Any]:
     return {"triggered": True, "story": story_payload, "media": media}
 
 
-@app.get("/api/audio/{filename}")
+@app.get(
+    "/api/audio/{filename}",
+    tags=["Stories"],
+    summary="Stream generated audio",
+    description="Streams a generated story audio file from the local story audio output directory.",
+)
 def stream_audio(filename: str) -> FileResponse:
     """Stream an audio file for a generated story.
 
@@ -725,7 +850,13 @@ def stream_audio(filename: str) -> FileResponse:
     return FileResponse(audio_path)
 
 
-@app.get("/")
+@app.get(
+    "/",
+    tags=["Frontend"],
+    summary="Open demo frontend",
+    description="Serves the local HTML demo that calls the API endpoints.",
+    include_in_schema=False,
+)
 def demo_frontend() -> FileResponse:
     """Serve the demo frontend HTML page.
 
